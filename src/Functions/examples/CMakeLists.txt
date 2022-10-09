@@ -1,0 +1,2 @@
+clickhouse_add_executable (associative_applier_perf associative_applier_perf.cpp)
+target_link_libraries (associative_applier_perf PRIVATE dbms)
