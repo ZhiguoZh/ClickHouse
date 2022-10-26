@@ -19,7 +19,7 @@ struct LinearCongruentialGenerator
     UInt32 next()
     {
         current = current * a + c;
-        return current >> 16;
+        return static_cast<UInt32>(current >> 16);
     }
 };
 
@@ -67,13 +67,58 @@ void measureAssociativeApplierPerf(size_t size, double zero_ratio)
     }
 }
 
+template <typename Op, typename OpName, size_t N = 8>
+void measureAssociativeGenericApplierPerf(size_t size, double zero_ratio, double null_ratio)
+{
+    LinearCongruentialGenerator gen;
+    double non_null_ratio = 1 - null_ratio;
+
+    for (size_t width = 1; width <= N; ++width)
+    {
+        ColumnRawPtrs arguments;
+        auto col_res = ColumnUInt8::create(size);
+
+        for (size_t i = 0; i < width; ++i)
+        {
+            auto nested_col = ColumnUInt8::create(size);
+            auto null_map = ColumnUInt8::create(size);
+            auto & nested_col_data = nested_col->getData();
+            auto & null_map_data = null_map->getData();
+
+            generateRandomUInt8Column(gen, null_map_data.data(), size, non_null_ratio);
+            generateRandomUInt8Column(gen, nested_col_data.data(), size, zero_ratio / non_null_ratio);
+            
+            auto col_nullable = ColumnNullable::create(std::move(nested_col), std::move(null_map));
+
+            arguments.push_back(col_nullable.get());
+        }
+
+        {
+            Stopwatch watch;
+            OperationApplier<Op, AssociativeGenericApplierImpl>::apply(arguments, col_res->getData(), false);
+            std::cerr << OpName::name << " operation on " << width << " columns with the zero ratio of " << zero_ratio << " and null ratio of " << null_ratio << " elapsed: " << watch.elapsedSeconds() << std::endl;
+        }
+    }
+}
+
 int main()
 {
     size_t size = 10000000;
 
+    std::cerr << "Meaure Performance of AssociativeApplier" << std::endl;
     for (double zero_ratio = 0.0; zero_ratio < 1.1; zero_ratio += 0.2)
     {
         measureAssociativeApplierPerf<AndImpl, NameAnd>(size, zero_ratio);
         measureAssociativeApplierPerf<OrImpl, NameOr>(size, zero_ratio);
+    }
+
+    std::cerr << "Meaure Performance of AssociativeGenericApplier" << std::endl;
+    for (double null_ratio = 0.0; null_ratio < 1.1; null_ratio += 0.2)
+    {
+        for (double zero_ratio = 0.0; zero_ratio < (1 - null_ratio); zero_ratio += 0.2)
+        {
+            measureAssociativeGenericApplierPerf<AndImpl, NameAnd>(size, zero_ratio, null_ratio);
+            measureAssociativeGenericApplierPerf<OrImpl, NameOr>(size, zero_ratio, null_ratio);
+        }
     }
 }
