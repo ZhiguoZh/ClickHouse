@@ -260,10 +260,7 @@ public:
     inline ResultValueType apply(const size_t i) const
     {
         const auto a = val_getter(i);
-        if constexpr (Op::isSaturable())
-            return Op::isSaturatedValueTernary(a) ? a : Op::apply(a, next.apply(i));
-        else
-            return Op::apply(a, next.apply(i));
+        return Op::apply(a, next.apply(i));
     }
 
 private:
