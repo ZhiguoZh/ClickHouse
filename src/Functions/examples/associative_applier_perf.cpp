@@ -113,12 +113,10 @@ int main()
     //}
 
     std::cerr << "Meaure Performance of AssociativeGenericApplier" << std::endl;
-    for (double null_ratio = 0.0; null_ratio < 1.1; null_ratio += 0.2)
+    for (double zero_ratio = 0.0; zero_ratio < 1.1; zero_ratio += 0.2)
     {
-        for (double zero_ratio = 0.0; zero_ratio < (1 - null_ratio); zero_ratio += 0.2)
-        {
-            measureAssociativeGenericApplierPerf<AndImpl, NameAnd>(size, zero_ratio, null_ratio);
-            measureAssociativeGenericApplierPerf<OrImpl, NameOr>(size, zero_ratio, null_ratio);
-        }
+        double null_ratio = zero_ratio;
+        measureAssociativeGenericApplierPerf<AndImpl, NameAnd>(size, zero_ratio, null_ratio);
+        measureAssociativeGenericApplierPerf<OrImpl, NameOr>(size, zero_ratio, null_ratio);
     }
 }
