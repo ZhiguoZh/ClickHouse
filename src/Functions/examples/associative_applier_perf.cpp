@@ -105,12 +105,12 @@ int main()
 {
     size_t size = 10000000;
 
-    std::cerr << "Meaure Performance of AssociativeApplier" << std::endl;
-    for (double zero_ratio = 0.0; zero_ratio < 1.1; zero_ratio += 0.2)
-    {
-        measureAssociativeApplierPerf<AndImpl, NameAnd>(size, zero_ratio);
-        measureAssociativeApplierPerf<OrImpl, NameOr>(size, zero_ratio);
-    }
+    //std::cerr << "Meaure Performance of AssociativeApplier" << std::endl;
+    //for (double zero_ratio = 0.0; zero_ratio < 1.1; zero_ratio += 0.2)
+    //{
+    //    measureAssociativeApplierPerf<AndImpl, NameAnd>(size, zero_ratio);
+    //    measureAssociativeApplierPerf<OrImpl, NameOr>(size, zero_ratio);
+    //}
 
     std::cerr << "Meaure Performance of AssociativeGenericApplier" << std::endl;
     for (double null_ratio = 0.0; null_ratio < 1.1; null_ratio += 0.2)
