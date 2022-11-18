@@ -1,6 +1,7 @@
 #include <iostream>
 #include <limits>
 #include <vector>
+#include <string>
 
 #include <Columns/ColumnsNumber.h>
 #include <Common/Stopwatch.h>
@@ -23,13 +24,14 @@ struct LinearCongruentialGenerator
     }
 };
 
-void generateRandomUInt8Column(LinearCongruentialGenerator & gen, UInt8 * output, size_t size, double zero_ratio)
+template<typename T>
+void generateRandomColumn(LinearCongruentialGenerator & gen, T * output, size_t size, double zero_ratio)
 {
     /// The LinearCongruentialGenerator generates nonnegative integers uniformly distributed over the interval [0, 2^32).
     /// See https://linux.die.net/man/3/nrand48
     UInt32 threshold = static_cast<UInt32>(static_cast<double>(std::numeric_limits<UInt32>::max()) * zero_ratio);
 
-    for (UInt8 * end = output + size; output != end; ++output)
+    for (T * end = output + size; output != end; ++output)
     {
         UInt32 val = gen.next();
         *output = val > threshold ? 1 : 0;
@@ -54,7 +56,7 @@ void measureAssociativeApplierPerf(size_t size, double zero_ratio)
             auto & col_data = col->getData();
             col_data.resize(size);
 
-            generateRandomUInt8Column(gen, col_data.data(), size, zero_ratio);
+            generateRandomColumn(gen, col_data.data(), size, zero_ratio);
 
             uint8_args.push_back(col.get());
         }
@@ -85,8 +87,8 @@ void measureAssociativeGenericApplierPerf(size_t size, double zero_ratio, double
             auto & nested_col_data = nested_col->getData();
             auto & null_map_data = null_map->getData();
 
-            generateRandomUInt8Column(gen, null_map_data.data(), size, non_null_ratio);
-            generateRandomUInt8Column(gen, nested_col_data.data(), size, zero_ratio / non_null_ratio);
+            generateRandomColumn(gen, null_map_data.data(), size, non_null_ratio);
+            generateRandomColumn(gen, nested_col_data.data(), size, zero_ratio / non_null_ratio);
             
             auto col_nullable = ColumnNullable::create(std::move(nested_col), std::move(null_map));
 
@@ -101,10 +103,118 @@ void measureAssociativeGenericApplierPerf(size_t size, double zero_ratio, double
     }
 }
 
+template <typename Op, typename OpName, typename T>
+void testAssociativeGenericApplier()
+{
+    size_t size = 9;
+    
+    ColumnRawPtrs arguments;
+    auto col_res = ColumnUInt8::create(size);
+    auto & col_res_data = col_res->getData();
+    auto col_expected = ColumnUInt8::create(size);
+    auto & col_expected_data = col_expected->getData();
+    
+    if (std::string(OpName::name) == std::string("and"))
+    {
+        col_expected_data[0] = Ternary::False;
+        col_expected_data[1] = Ternary::False;
+        col_expected_data[2] = Ternary::False;
+        col_expected_data[3] = Ternary::False;
+        col_expected_data[4] = Ternary::Null;
+        col_expected_data[5] = Ternary::Null;
+        col_expected_data[6] = Ternary::False;
+        col_expected_data[7] = Ternary::Null;
+        col_expected_data[8] = Ternary::True;
+    }
+    else if (std::string(OpName::name) == std::string("or"))
+    {
+        col_expected_data[0] = Ternary::False;
+        col_expected_data[1] = Ternary::Null;
+        col_expected_data[2] = Ternary::True;
+        col_expected_data[3] = Ternary::Null;
+        col_expected_data[4] = Ternary::Null;
+        col_expected_data[5] = Ternary::True;
+        col_expected_data[6] = Ternary::True;
+        col_expected_data[7] = Ternary::True;
+        col_expected_data[8] = Ternary::True;
+    }
+    
+    UInt8 ternary_values[] = {Ternary::False, Ternary::Null, Ternary::True}; 
+    
+    auto nested_col_a = ColumnVector<T>::create(size);
+    auto null_map_a = ColumnUInt8::create(size);
+    auto & nested_col_data_a = nested_col_a->getData();
+    auto & null_map_data_a = null_map_a->getData();
+    
+    auto nested_col_b = ColumnVector<T>::create(size);
+    auto null_map_b = ColumnUInt8::create(size);
+    auto & nested_col_data_b = nested_col_b->getData();
+    auto & null_map_data_b = null_map_b->getData();
+
+    for (size_t i = 0; i < 3; ++i)
+    {
+        for (size_t j = 0; j < 3; ++j)
+        {
+            //Column a
+            if (ternary_values[i] == Ternary::Null)
+            {
+                null_map_data_a[3*i+j] = 1;
+                nested_col_data_a[3*i+j] = 0;
+            }
+            else if (ternary_values[i] == Ternary::True)
+            {
+                null_map_data_a[3*i+j] = 0;
+                nested_col_data_a[3*i+j] = 1;
+            }
+            else if (ternary_values[i] == Ternary::False)
+            {
+                null_map_data_a[3*i+j] = 0;
+                nested_col_data_a[3*i+j] = 0;
+            }
+
+            //Column b
+            if (ternary_values[j] == Ternary::Null)
+            {
+                null_map_data_b[3*i+j] = 1;
+                nested_col_data_b[3*i+j] = 0;
+            }
+            else if (ternary_values[j] == Ternary::True)
+            {
+                null_map_data_b[3*i+j] = 0;
+                nested_col_data_b[3*i+j] = 1;
+            }
+            else if (ternary_values[j] == Ternary::False)
+            {
+                null_map_data_b[3*i+j] = 0;
+                nested_col_data_b[3*i+j] = 0;
+            }
+        }
+    }
+    
+    auto col_nullable_a = ColumnNullable::create(std::move(nested_col_a), std::move(null_map_a));
+    auto col_nullable_b = ColumnNullable::create(std::move(nested_col_b), std::move(null_map_b));
+    
+    arguments.push_back(col_nullable_a.get());
+    arguments.push_back(col_nullable_b.get());
+
+    OperationApplier<Op, AssociativeGenericApplierImpl>::apply(arguments, col_res->getData(), false);
+    
+    for (size_t i = 0; i < size; ++i)
+    {
+        if (col_res_data[i] != col_expected_data[i])
+        {
+            std::cerr << "Result error: operator" << OpName::name << " index:" << i << std::endl;
+        }
+    }
+    
+}
+
 int main()
 {
     size_t size = 10000000;
 
+    testAssociativeGenericApplier<AndImpl, NameAnd, UInt8>();
+    testAssociativeGenericApplier<OrImpl, NameOr, UInt8>();
     //std::cerr << "Meaure Performance of AssociativeApplier" << std::endl;
     //for (double zero_ratio = 0.0; zero_ratio < 1.1; zero_ratio += 0.2)
     //{
