@@ -67,7 +67,7 @@ void measureAssociativeApplierPerf(size_t size, double zero_ratio)
     }
 }
 
-template <typename Op, typename OpName, size_t N = 8>
+template <typename Op, typename OpName, typename T, size_t N = 8>
 void measureAssociativeGenericApplierPerf(size_t size, double zero_ratio, double null_ratio)
 {
     LinearCongruentialGenerator gen;
@@ -80,7 +80,7 @@ void measureAssociativeGenericApplierPerf(size_t size, double zero_ratio, double
 
         for (size_t i = 0; i < width; ++i)
         {
-            auto nested_col = ColumnUInt8::create(size);
+            auto nested_col = ColumnVector<T>::create(size);
             auto null_map = ColumnUInt8::create(size);
             auto & nested_col_data = nested_col->getData();
             auto & null_map_data = null_map->getData();
@@ -113,10 +113,83 @@ int main()
     //}
 
     std::cerr << "Meaure Performance of AssociativeGenericApplier" << std::endl;
+    std::cerr << "UInt8" << std::endl;
     for (double zero_ratio = 0.0; zero_ratio < 1.1; zero_ratio += 0.2)
     {
         double null_ratio = 0.0;
-        measureAssociativeGenericApplierPerf<AndImpl, NameAnd>(size, zero_ratio, null_ratio);
-        measureAssociativeGenericApplierPerf<OrImpl, NameOr>(size, zero_ratio, null_ratio);
+        measureAssociativeGenericApplierPerf<AndImpl, NameAnd, UInt8>(size, zero_ratio, null_ratio);
+        measureAssociativeGenericApplierPerf<OrImpl, NameOr, UInt8>(size, zero_ratio, null_ratio);
+    }
+
+    std::cerr << "UInt16" << std::endl;
+    for (double zero_ratio = 0.0; zero_ratio < 1.1; zero_ratio += 0.2)
+    {
+        double null_ratio = 0.0;
+        measureAssociativeGenericApplierPerf<AndImpl, NameAnd, UInt16>(size, zero_ratio, null_ratio);
+        measureAssociativeGenericApplierPerf<OrImpl, NameOr, UInt16>(size, zero_ratio, null_ratio);
+    }
+
+    std::cerr << "UInt32" << std::endl;
+    for (double zero_ratio = 0.0; zero_ratio < 1.1; zero_ratio += 0.2)
+    {
+        double null_ratio = 0.0;
+        measureAssociativeGenericApplierPerf<AndImpl, NameAnd, UInt32>(size, zero_ratio, null_ratio);
+        measureAssociativeGenericApplierPerf<OrImpl, NameOr, UInt32>(size, zero_ratio, null_ratio);
+    }
+
+    std::cerr << "UInt64" << std::endl;
+    for (double zero_ratio = 0.0; zero_ratio < 1.1; zero_ratio += 0.2)
+    {
+        double null_ratio = 0.0;
+        measureAssociativeGenericApplierPerf<AndImpl, NameAnd, UInt64>(size, zero_ratio, null_ratio);
+        measureAssociativeGenericApplierPerf<OrImpl, NameOr, UInt64>(size, zero_ratio, null_ratio);
+    }
+
+    std::cerr << "Int8" << std::endl;
+    for (double zero_ratio = 0.0; zero_ratio < 1.1; zero_ratio += 0.2)
+    {
+        double null_ratio = 0.0;
+        measureAssociativeGenericApplierPerf<AndImpl, NameAnd, Int8>(size, zero_ratio, null_ratio);
+        measureAssociativeGenericApplierPerf<OrImpl, NameOr, Int8>(size, zero_ratio, null_ratio);
+    }
+
+    std::cerr << "Int16" << std::endl;
+    for (double zero_ratio = 0.0; zero_ratio < 1.1; zero_ratio += 0.2)
+    {
+        double null_ratio = 0.0;
+        measureAssociativeGenericApplierPerf<AndImpl, NameAnd, Int16>(size, zero_ratio, null_ratio);
+        measureAssociativeGenericApplierPerf<OrImpl, NameOr, Int16>(size, zero_ratio, null_ratio);
+    }
+
+    std::cerr << "Int32" << std::endl;
+    for (double zero_ratio = 0.0; zero_ratio < 1.1; zero_ratio += 0.2)
+    {
+        double null_ratio = 0.0;
+        measureAssociativeGenericApplierPerf<AndImpl, NameAnd, Int32>(size, zero_ratio, null_ratio);
+        measureAssociativeGenericApplierPerf<OrImpl, NameOr, Int32>(size, zero_ratio, null_ratio);
+    }
+
+    std::cerr << "Int64" << std::endl;
+    for (double zero_ratio = 0.0; zero_ratio < 1.1; zero_ratio += 0.2)
+    {
+        double null_ratio = 0.0;
+        measureAssociativeGenericApplierPerf<AndImpl, NameAnd, Int64>(size, zero_ratio, null_ratio);
+        measureAssociativeGenericApplierPerf<OrImpl, NameOr, Int64>(size, zero_ratio, null_ratio);
+    }
+
+    std::cerr << "Float32" << std::endl;
+    for (double zero_ratio = 0.0; zero_ratio < 1.1; zero_ratio += 0.2)
+    {
+        double null_ratio = 0.0;
+        measureAssociativeGenericApplierPerf<AndImpl, NameAnd, Float32>(size, zero_ratio, null_ratio);
+        measureAssociativeGenericApplierPerf<OrImpl, NameOr, Float32>(size, zero_ratio, null_ratio);
+    }
+
+    std::cerr << "Float64" << std::endl;
+    for (double zero_ratio = 0.0; zero_ratio < 1.1; zero_ratio += 0.2)
+    {
+        double null_ratio = 0.0;
+        measureAssociativeGenericApplierPerf<AndImpl, NameAnd, Float64>(size, zero_ratio, null_ratio);
+        measureAssociativeGenericApplierPerf<OrImpl, NameOr, Float64>(size, zero_ratio, null_ratio);
     }
 }
