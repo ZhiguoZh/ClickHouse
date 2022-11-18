@@ -115,7 +115,7 @@ int main()
     std::cerr << "Meaure Performance of AssociativeGenericApplier" << std::endl;
     for (double zero_ratio = 0.0; zero_ratio < 1.1; zero_ratio += 0.2)
     {
-        double null_ratio = zero_ratio;
+        double null_ratio = 0.0;
         measureAssociativeGenericApplierPerf<AndImpl, NameAnd>(size, zero_ratio, null_ratio);
         measureAssociativeGenericApplierPerf<OrImpl, NameOr>(size, zero_ratio, null_ratio);
     }
