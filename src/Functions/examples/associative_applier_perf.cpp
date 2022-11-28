@@ -94,15 +94,17 @@ void measureAssociativeGenericApplierPerf(size_t size, double zero_ratio, double
                 arguments.push_back(col.get());
             }
         }
-        else if (null_ratio == 0)
+        else if (null_ratio == 1)
         {
-            for (size_t i = 0; i < width; ++i)
-            {
-                auto nested_col = ColumnNothing::create(size);
-                auto null_map = ColumnUInt8::create(size);
-                auto col_nullable = ColumnNullable::create(std::move(nested_col), std::move(null_map));
+            auto nested_col = ColumnNothing::create(size);
+            auto null_map = ColumnUInt8::create(size);
+            auto col_nullable = ColumnNullable::create(std::move(nested_col), std::move(null_map));
+            arguments.push_back(col_nullable.get());
 
-                arguments.push_back(col_nullable.get());
+            for (size_t i = 1; i < width; ++i)
+            {
+                auto copied = col_nullable->clone();
+                arguments.push_back(copied.get());
             }
         }
         else
@@ -144,19 +146,21 @@ int main()
     }
 
     std::cerr << "Measure Performance of AssociativeGenericApplier" << std::endl;
-    std::cerr << "UInt8" << std::endl;
+    std::cerr << "Null Ratio = 0" << std::endl;
     for (double zero_ratio = 0.0; zero_ratio < 1.1; zero_ratio += 0.2)
     {
         double null_ratio = 0;
         measureAssociativeGenericApplierPerf<AndImpl, NameAnd, UInt8>(size, zero_ratio, null_ratio);
         measureAssociativeGenericApplierPerf<OrImpl, NameOr, UInt8>(size, zero_ratio, null_ratio);
     }
+    std::cerr << "Null Ratio = 1" << std::endl;
     for (double zero_ratio = 0.0; zero_ratio < 1.1; zero_ratio += 0.2)
     {
         double null_ratio = 1;
         measureAssociativeGenericApplierPerf<AndImpl, NameAnd, UInt8>(size, zero_ratio, null_ratio);
         measureAssociativeGenericApplierPerf<OrImpl, NameOr, UInt8>(size, zero_ratio, null_ratio);
     }
+    std::cerr << "UInt8" << std::endl;
     for (double zero_ratio = 0.0; zero_ratio < 1.1; zero_ratio += 0.2)
     {
         double null_ratio = 0.05;
