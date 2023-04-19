@@ -30,6 +30,12 @@ private:
 
     std::vector<ASTs> extractTablesPredicates(const ASTPtr & where, const ASTPtr & prewhere);
 
+    bool tryOptimizePredicatesWithYearISOWeek(ASTSelectQuery & select_query);
+
+    std::pair<ASTPtr, ASTPtr> tryConvertYearISOWeekToDateRanges(const String & column, UInt64 year, UInt64 week);
+
+    bool hasDateConverterEqualsInPredicate(const ASTPtr & predicate, const String & converter_name, Field & equals_to, String & column);
+
     bool tryRewritePredicatesToTables(ASTs & tables_element, const std::vector<ASTs> & tables_predicates);
 
     bool tryRewritePredicatesToTable(

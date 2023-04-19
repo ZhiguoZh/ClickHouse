@@ -1149,6 +1149,43 @@ public:
         return lut[index].date + time_offset;
     }
 
+    /** Create DayNum from year, week, day of week in three steps:
+      * 1. Convert ISOWeekDate (year, week number and weekday number) to ordinal date (year and day of the year).
+      * 2. Convert oridinal date to calendar date (year, month, day of month)
+      * 3. Create DayNum from year, month, day of month with makeDayNum.
+      */
+    inline ExtendedDayNum makeDayNumFromISOWeekDate(Int16 year, UInt8 week, UInt8 day_of_week, Int32 default_error_day_num = 0) const
+    {
+        if (unlikely(year < DATE_LUT_MIN_YEAR || week < 1 || week > 53 || day_of_week < 1 || day_of_week > 7))
+            return ExtendedDayNum(default_error_day_num);
+
+        /// https://en.wikipedia.org/wiki/ISO_week_date#Calculating_an_ordinal_or_month_date_from_a_week_date
+        UInt8 dow_jan_4 = toDayOfWeek(makeLUTIndex(year, 1, 4));
+        UInt8 day_of_year = week * 7 + day_of_week - (dow_jan_4 + 3);
+
+        /// https://en.wikipedia.org/wiki/Ordinal_date#Month%E2%80%93day
+        UInt8 month = day_of_year / 30 + 1;
+        UInt8 i = 0;
+
+        UInt8 days_of_month[] = {31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+        bool leap_year = (year & 3) == 0 && (year % 100 || (year % 400 == 0 && year));
+
+        if (month == 1) i = 1;
+        else if (month == 2) i = 0;
+        else if (leap_year) i = 2;
+        else i = 3;
+
+        UInt8 day_of_month = day_of_year % 30 + i - static_cast<UInt8>(0.6 * (month + 1));
+
+        if (day_of_month <= 0)
+        {
+            month--;
+            day_of_month += days_of_month[month - 1];
+        }
+
+        return makeDayNum(year, month, day_of_month);
+    }
+
     template <typename DateOrTime>
     inline const Values & getValues(DateOrTime v) const { return lut[toLUTIndex(v)]; }
 

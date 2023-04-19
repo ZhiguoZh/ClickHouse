@@ -6,11 +6,18 @@
 #include <Interpreters/getTableExpressions.h>
 #include <Interpreters/IdentifierSemantic.h>
 #include <Parsers/ASTFunction.h>
+#include <Parsers/ASTIdentifier.h>
+#include <Parsers/ASTLiteral.h>
 #include <Parsers/ASTSelectQuery.h>
 #include <Parsers/ASTSelectWithUnionQuery.h>
 #include <Parsers/ASTTablesInSelectQuery.h>
 #include <Parsers/IAST.h>
 
+#include <Common/DateLUT.h>
+#include <Common/DateLUTImpl.h>
+
+#include <map>
+#include <utility>
 
 namespace DB
 {
@@ -44,6 +51,8 @@ bool PredicateExpressionsOptimizer::optimize(ASTSelectQuery & select_query)
 
     if ((!select_query.where() && !select_query.prewhere()) || select_query.arrayJoinExpressionList().first)
         return false;
+
+    tryOptimizePredicatesWithYearISOWeek(select_query);
 
     const auto & tables_predicates = extractTablesPredicates(select_query.where(), select_query.prewhere());
 
@@ -85,6 +94,121 @@ std::vector<ASTs> PredicateExpressionsOptimizer::extractTablesPredicates(const A
     }
 
     return tables_predicates;    /// everything is OK, it can be optimized
+}
+
+bool PredicateExpressionsOptimizer::hasDateConverterEqualsInPredicate(const ASTPtr & predicate, const String & converter_name, Field & equals_to, String & column)
+{
+    if (auto * func = predicate->as<ASTFunction>(); func && func->name == "equals")
+    {
+        ASTPtr left = func->arguments->children.at(0);
+        ASTPtr right = func->arguments->children.at(1);
+
+        const auto * converter = left->as<ASTFunction>();
+
+        if (!converter) std::swap(left, right);
+
+        if (converter || (converter = left->as<ASTFunction>()))
+        {
+            if (const auto * literal = right->as<ASTLiteral>())
+            {
+                if (converter->name == converter_name)
+                {
+                    column = converter->arguments->children.at(0)->as<ASTIdentifier>()->name();
+                    equals_to = literal->value;
+
+                    return true;
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
+std::pair<ASTPtr, ASTPtr> PredicateExpressionsOptimizer::tryConvertYearISOWeekToDateRanges(const String & column, UInt64 year, UInt64 week)
+{
+    const DateLUTImpl & date_lut = DateLUT::instance();
+
+    String from_date = date_lut.dateToString(date_lut.makeDayNumFromISOWeekDate(year, week, 1));
+    String to_date = date_lut.dateToString(date_lut.makeDayNumFromISOWeekDate(year, week, 7));
+
+    auto greater_or_equals_from_date = makeASTFunction("greaterOrEquals",
+                                           std::make_shared<ASTIdentifier>(column),
+                                           makeASTFunction("toDate", std::make_shared<ASTLiteral>(from_date)));
+
+    auto less_or_equals_to_date = makeASTFunction("lessOrEquals",
+                                      std::make_shared<ASTIdentifier>(column),
+                                      makeASTFunction("toDate", std::make_shared<ASTLiteral>(to_date)));
+
+    return std::make_pair(greater_or_equals_from_date, less_or_equals_to_date);
+}
+
+bool PredicateExpressionsOptimizer::tryOptimizePredicatesWithYearISOWeek(ASTSelectQuery & select_query)
+{
+    const auto & reduce_predicates = [&](const ASTs & predicates)
+    {
+        ASTPtr res = predicates[0];
+        for (size_t index = 1; index < predicates.size(); ++index)
+            res = makeASTFunction("and", res, predicates[index]);
+
+        return res;
+    };
+
+    ASTs predicates = splitConjunctionsAst(select_query.where());
+    ASTs prewhere_predicates = splitConjunctionsAst(select_query.prewhere());
+    predicates.insert(predicates.end(), prewhere_predicates.begin(), prewhere_predicates.end());
+
+    std::unordered_map<String, std::pair<UInt64, size_t>> column_to_year, column_to_week;
+
+    for (size_t i = 0; i != predicates.size(); ++i)
+    {
+        String column;
+        Field equals_to;
+
+        if (hasDateConverterEqualsInPredicate(predicates[i], "toYear", equals_to, column))
+        {
+            if (!column_to_year.contains(column) && equals_to.getType() == Field::Types::UInt64)
+            {
+                column_to_year[column] = std::make_pair(equals_to.safeGet<UInt64>(), i);
+            }
+            else return false;
+        }
+        else if (hasDateConverterEqualsInPredicate(predicates[i], "toISOWeek", equals_to, column))
+        {
+            if (!column_to_week.contains(column) && equals_to.getType() == Field::Types::UInt64)
+            {
+                column_to_week[column] = std::make_pair(equals_to.safeGet<UInt64>(), i);
+            }
+            else return false;
+        }
+    }
+
+    bool predicates_rewrite = false;
+
+    for (const auto & [column, year_and_index] : column_to_year)
+    {
+        if (column_to_week.contains(column))
+        {
+            const auto & [week, week_index] = column_to_week[column];
+            const auto & [year, year_index] = year_and_index;
+
+            const auto & [greater_or_equals_from_date, less_or_equals_to_date] = tryConvertYearISOWeekToDateRanges(column, year, week);
+
+            predicates[year_index] = greater_or_equals_from_date;
+            predicates[week_index] = less_or_equals_to_date;
+
+            predicates_rewrite = true;
+        }
+    }
+
+    if (predicates_rewrite)
+    {
+        auto reduced_predicate = reduce_predicates(predicates);
+        select_query.setExpression(ASTSelectQuery::Expression::WHERE, std::move(reduced_predicate));
+        select_query.setExpression(ASTSelectQuery::Expression::PREWHERE, {});
+    }
+
+    return true;
 }
 
 bool PredicateExpressionsOptimizer::tryRewritePredicatesToTables(ASTs & tables_element, const std::vector<ASTs> & tables_predicates)
