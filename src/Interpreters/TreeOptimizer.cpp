@@ -25,6 +25,7 @@
 #include <Interpreters/GatherFunctionQuantileVisitor.h>
 #include <Interpreters/RewriteSumIfFunctionVisitor.h>
 #include <Interpreters/RewriteArrayExistsFunctionVisitor.h>
+#include <Interpreters/OptimizeDateFilterWithYearVisitor.h>
 
 #include <Parsers/ASTExpressionList.h>
 #include <Parsers/ASTFunction.h>
@@ -611,6 +612,23 @@ bool convertQueryToCNF(ASTSelectQuery * select_query)
     return false;
 }
 
+/// Transform WHERE to CNF for more convenient optimization.
+bool convertQueryToDNF(ASTSelectQuery * select_query)
+{
+    if (select_query->where())
+    {
+        auto dnf_form = TreeDNFConverter::tryConvertToDNF(select_query->where());
+        if (!dnf_form)
+            return false;
+
+        dnf_form->pushNotInFunctions();
+        select_query->refWhere() = TreeDNFConverter::fromDNF(*dnf_form);
+        return true;
+    }
+
+    return false;
+}
+
 /// Remove duplicated columns from USING(...).
 void optimizeUsing(const ASTSelectQuery * select_query)
 {
@@ -657,6 +675,28 @@ void optimizeSumIfFunctions(ASTPtr & query)
 {
     RewriteSumIfFunctionVisitor::Data data = {};
     RewriteSumIfFunctionVisitor(data).visit(query);
+}
+
+void optimizeDateFilters(ASTSelectQuery * select_query)
+{
+    ASTPtr select_where = select_query->where();
+
+    DateFilterScanVisitor::Data date_filter_scan_data;
+    DateFilterScanVisitor(date_filter_scan_data).visit(select_where);
+
+    if (date_filter_scan_data.withToYear && date_filter_scan_data.withToISOWeek)
+    {
+        if (!convertQueryToDNF(select_query)) return;
+        select_where = select_query->where();
+
+        OptimizeDateFilterWithYearInDNFVisitor::Data data;
+        OptimizeDateFilterWithYearInDNFVisitor(data).visit(select_where);
+    }
+    else if (date_filter_scan_data.withToYear || date_filter_scan_data.withToYYYYMM)
+    {
+        OptimizeDateFilterWithYearInPlaceVisitor::Data data;
+        OptimizeDateFilterWithYearInPlaceVisitor(data).visit(select_where);
+    }
 }
 
 void optimizeArrayExistsFunctions(ASTPtr & query)
@@ -776,6 +816,9 @@ void TreeOptimizer::apply(ASTPtr & query, TreeRewriterResult & result,
             optimizeSubstituteColumn(select_query, result.aliases, result.source_columns_set,
                 tables_with_columns, result.storage_snapshot->metadata, result.storage);
     }
+
+    /// Rewrite date filters to avoid the calls of converters such as toYear, toYYYYMM, toISOWeek, etc.
+    optimizeDateFilters(select_query);
 
     /// GROUP BY injective function elimination.
     optimizeGroupBy(select_query, context);
