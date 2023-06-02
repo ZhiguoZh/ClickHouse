@@ -88,6 +88,56 @@ TEST(DateLUTTest, makeDayNumTest)
     EXPECT_EQ(120529, lut.makeDayNum(2500, 12, 25));
 }
 
+TEST(DateLUTTest, makeDayNumFromISOWeekDateTest)
+{
+    const DateLUTImpl & lut = DateLUT::instance("UTC");
+    EXPECT_EQ(0, lut.makeDayNumFromISOWeekDate(1899, 12, 1));
+    EXPECT_EQ(-1, lut.makeDayNumFromISOWeekDate(1899, 12, 1, -1));
+
+    /// Check dates around new year's day.
+    /// Examples from https://en.wikipedia.org/wiki/ISO_week_date.
+    EXPECT_EQ(lut.makeDayNum(1977, 1, 1), lut.makeDayNumFromISOWeekDate(1976, 53, 6));
+    EXPECT_EQ(lut.makeDayNum(1977, 1, 2), lut.makeDayNumFromISOWeekDate(1976, 53, 7));
+    EXPECT_EQ(lut.makeDayNum(1977, 12, 31), lut.makeDayNumFromISOWeekDate(1977, 52, 6));
+    EXPECT_EQ(lut.makeDayNum(1978, 1, 1), lut.makeDayNumFromISOWeekDate(1977, 52, 7));
+    EXPECT_EQ(lut.makeDayNum(1978, 1, 2), lut.makeDayNumFromISOWeekDate(1978, 1, 1));
+    EXPECT_EQ(lut.makeDayNum(1978, 12, 31), lut.makeDayNumFromISOWeekDate(1978, 52, 7));
+    EXPECT_EQ(lut.makeDayNum(1979, 1, 1), lut.makeDayNumFromISOWeekDate(1979, 1, 1));
+    EXPECT_EQ(lut.makeDayNum(1979, 12, 30), lut.makeDayNumFromISOWeekDate(1979, 52, 7));
+    EXPECT_EQ(lut.makeDayNum(1979, 12, 31), lut.makeDayNumFromISOWeekDate(1980, 1, 1));
+    EXPECT_EQ(lut.makeDayNum(1980, 1, 1), lut.makeDayNumFromISOWeekDate(1980, 1, 2));
+    EXPECT_EQ(lut.makeDayNum(1980, 12, 28), lut.makeDayNumFromISOWeekDate(1980, 52, 7));
+    EXPECT_EQ(lut.makeDayNum(1980, 12, 29), lut.makeDayNumFromISOWeekDate(1981, 1, 1));
+    EXPECT_EQ(lut.makeDayNum(1980, 12, 30), lut.makeDayNumFromISOWeekDate(1981, 1, 2));
+    EXPECT_EQ(lut.makeDayNum(1980, 12, 31), lut.makeDayNumFromISOWeekDate(1981, 1, 3));
+    EXPECT_EQ(lut.makeDayNum(1981, 1, 1), lut.makeDayNumFromISOWeekDate(1981, 1, 4));
+    EXPECT_EQ(lut.makeDayNum(1981, 12, 31), lut.makeDayNumFromISOWeekDate(1981, 53, 4));
+    EXPECT_EQ(lut.makeDayNum(1982, 1, 1), lut.makeDayNumFromISOWeekDate(1981, 53, 5));
+    EXPECT_EQ(lut.makeDayNum(1982, 1, 2), lut.makeDayNumFromISOWeekDate(1981, 53, 6));
+    EXPECT_EQ(lut.makeDayNum(1982, 1, 3), lut.makeDayNumFromISOWeekDate(1981, 53, 7));
+
+    /// Check common year.
+    auto expected_day_num = lut.makeDayNum(2023, 1, 2); // ISO Week Date: 2023-W01-1
+
+    for (UInt8 week = 1; week <= 52; ++week)
+    {
+        for (UInt8 week_day = 1; week_day <= 7; ++week_day, ++expected_day_num)
+        {
+            EXPECT_EQ(expected_day_num, lut.makeDayNumFromISOWeekDate(2023, week, week_day));
+        }
+    }
+
+    /// Check leap year.
+    expected_day_num = lut.makeDayNum(2024, 1, 1); // ISO Week Date: 2024-W01-1
+
+    for (UInt8 week = 1; week <= 52; ++week)
+    {
+        for (UInt8 week_day = 1; week_day <= 7; ++week_day, ++expected_day_num)
+        {
+            EXPECT_EQ(expected_day_num, lut.makeDayNumFromISOWeekDate(2024, week, week_day));
+        }
+    }
+}
 
 TEST(DateLUTTest, TimeValuesInMiddleOfRange)
 {

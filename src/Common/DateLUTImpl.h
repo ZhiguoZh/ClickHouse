@@ -9,6 +9,7 @@
 #include <string>
 #include <type_traits>
 
+#include <iostream>
 
 #define DATE_SECONDS_PER_DAY 86400 /// Number of seconds in a day, 60 * 60 * 24
 
@@ -1191,6 +1192,63 @@ public:
             time_offset -= lut[index].amount_of_offset_change();
 
         return lut[index].date + time_offset;
+    }
+
+    /// Create DayNum from year, ISO week number, day of week.
+    inline ExtendedDayNum makeDayNumFromISOWeekDate(Int16 year, UInt8 week, UInt8 day_of_week, Int32 default_error_day_num = 0) const
+    {
+        if (unlikely(year < DATE_LUT_MIN_YEAR || week < 1 || week > 53 || day_of_week < 1 || day_of_week > 7))
+            return ExtendedDayNum(default_error_day_num);
+
+        /// Step 1: Convert ISOWeekDate (year, week number and weekday number) to ordinal date (year and day of the year).
+        /// https://en.wikipedia.org/wiki/ISO_week_date#Calculating_an_ordinal_or_month_date_from_a_week_date
+        UInt8 day_of_week_jan_4 = toDayOfWeek(makeLUTIndex(year, 1, 4));
+        Int16 day_of_year = static_cast<Int16>(week * 7 + day_of_week) - static_cast<Int16>(day_of_week_jan_4 + 3);
+
+        bool leap_year = (year & 3) == 0 && (year % 100 || (year % 400 == 0 && year));
+        UInt16 total_days_of_year = leap_year ? 366 : 365;
+
+        if (day_of_year < 1)
+        {
+            --year;
+            leap_year = leap_year ? false : (year & 3) == 0 && (year % 100 || (year % 400 == 0 && year));
+            day_of_year += leap_year ? 366 : 365;
+        }
+        else if (day_of_year > total_days_of_year)
+        {
+            ++year;
+            leap_year = leap_year ? false : (year & 3) == 0 && (year % 100 || (year % 400 == 0 && year));
+            day_of_year -= total_days_of_year;
+        }
+
+        /// Step 2: Convert ordinal date to calendar date (year, month, day of month).
+        /// https://en.wikipedia.org/wiki/Ordinal_date#Month%E2%80%93day
+        UInt8 month = day_of_year / 30 + 1;
+
+        /// Variable i is named in accordance with the above wiki.
+        /// However, the value of i should be corrected for January/February.
+        /// This revision is validated with gtest_DateLUTImpl(DateLUTTest.makeDayNumFromISOWeekDateTest).
+        UInt8 i = 0;
+        if (month == 1) i = 1;
+        else if (month == 2) i = 0;
+        else if (leap_year) i = 2;
+        else i = 3;
+
+        Int16 day_of_month = static_cast<Int16>(day_of_year % 30 + i) - static_cast<Int16>(0.6 * (month + 1));
+
+        /// When a date's day_of_month is zero or negative, it belongs to the previous month and needs to be compensated with days_of_month of the previous month.
+        /// The underflow in March occurs only on the 60th day of a *leap year*, which is actually February 29th.
+        /// And as a result, the days_of_month of February is set to 29, regardless of whether it's a common or leap year.
+        static constexpr UInt8 days_of_month[] = {31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+
+        if (day_of_month <= 0)
+        {
+            month--;
+            day_of_month += static_cast<Int16>(days_of_month[month - 1]);
+        }
+
+        /// Step 3: Create DayNum from year, month, day of month with makeDayNum.
+        return makeDayNum(year, month, day_of_month, default_error_day_num);
     }
 
     template <typename DateOrTime>
