@@ -1,4 +1,4 @@
-#include <Interpreters/TreeCNFConverter.h>
+#include <Interpreters/TreeNFConverter.h>
 #include <Parsers/IAST.h>
 #include <Parsers/ASTFunction.h>
 #include <Parsers/ASTIdentifier.h>
@@ -205,6 +205,100 @@ void traverseCNF(const ASTPtr & node, CNFQuery::AndGroup & result)
     if (!or_group.empty())
         result.insert(or_group);
 }
+/// Push And inside Or (actually pull Or to top)
+bool traversePushAnd(ASTPtr & node, size_t num_atoms, size_t max_atoms)
+{
+    if (max_atoms && num_atoms > max_atoms)
+        return false;
+
+    checkStackSize();
+    auto * func = node->as<ASTFunction>();
+
+    if (func && (func->name == "or" || func->name == "and"))
+    {
+        for (auto & child : func->arguments->children)
+            if (!traversePushAnd(child, num_atoms, max_atoms))
+                return false;
+    }
+
+    if (func && func->name == "and")
+    {
+        assert(func->arguments->children.size() == 2);
+        size_t or_node_id = func->arguments->children.size();
+        for (size_t i = 0; i < func->arguments->children.size(); ++i)
+        {
+            auto & child = func->arguments->children[i];
+            auto * or_func = child->as<ASTFunction>();
+            if (or_func && or_func->name == "or")
+                or_node_id = i;
+        }
+
+        if (or_node_id == func->arguments->children.size())
+            return true;
+
+        const size_t other_node_id = 1 - or_node_id;
+        const auto * or_func = func->arguments->children[or_node_id]->as<ASTFunction>();
+
+        auto a = func->arguments->children[other_node_id];
+        auto b = or_func->arguments->children[0];
+        auto c = or_func->arguments->children[1];
+
+        /// apply the distributive law ( a and (b or c) -> (a and b) or (a and c) )
+        node = makeASTFunction(
+            "or",
+            makeASTFunction("and", a->clone(), b),
+            makeASTFunction("and", a, c));
+
+        /// Count all atoms from 'a', because it was cloned.
+        num_atoms += countAtoms(a);
+        return traversePushAnd(node, num_atoms, max_atoms);
+    }
+
+    return true;
+}
+
+/// transform ast into dnf groups
+void traverseDNF(const ASTPtr & node, DNFQuery::OrGroup & or_group, DNFQuery::AndGroup & and_group)
+{
+    checkStackSize();
+
+    auto * func = node->as<ASTFunction>();
+    if (func && func->name == "or")
+    {
+        for (auto & child : func->arguments->children)
+        {
+            DNFQuery::AndGroup group;
+            traverseDNF(child, or_group, group);
+            if (!group.empty())
+                or_group.insert(std::move(group));
+        }
+    }
+    else if (func && func->name == "and")
+    {
+        for (auto & child : func->arguments->children)
+        {
+            traverseDNF(child, or_group, and_group);
+        }
+    }
+    else if (func && func->name == "not")
+    {
+        if (func->arguments->children.size() != 1)
+            throw Exception(ErrorCodes::INCORRECT_QUERY, "Bad NOT function. Expected 1 argument");
+        and_group.insert(DNFQuery::AtomicFormula{true, func->arguments->children.front()});
+    }
+    else
+    {
+        and_group.insert(DNFQuery::AtomicFormula{false, node});
+    }
+}
+
+void traverseDNF(const ASTPtr & node, DNFQuery::OrGroup & result)
+{
+    DNFQuery::AndGroup and_group;
+    traverseDNF(node, result, and_group);
+    if (!and_group.empty())
+        result.insert(and_group);
+}
 
 }
 
@@ -399,6 +493,120 @@ std::string CNFQuery::dump() const
     }
 
     return res.str();
+}
+
+std::string DNFQuery::dump() const
+{
+    WriteBufferFromOwnString res;
+    bool first = true;
+    for (const auto & group : statements)
+    {
+        if (!first)
+            res << " OR ";
+        first = false;
+        res << "(";
+        bool first_in_group = true;
+        for (const auto & atom : group)
+        {
+            if (!first_in_group)
+                res << " AND ";
+            first_in_group = false;
+            if (atom.negative)
+                res << " NOT ";
+            res << atom.ast->getColumnName();
+        }
+        res << ")";
+    }
+
+    return res.str();
+}
+
+std::optional<DNFQuery> TreeDNFConverter::tryConvertToDNF(
+    const ASTPtr & query, size_t max_growth_multiplier)
+{
+    auto dnf = query->clone();
+    size_t num_atoms = countAtoms(dnf);
+
+    splitMultiLogic(dnf);
+    traversePushNot(dnf, false);
+
+    size_t max_atoms = max_growth_multiplier
+        ? std::max(MAX_ATOMS_WITHOUT_CHECK, num_atoms * max_growth_multiplier)
+        : 0;
+
+    if (!traversePushAnd(dnf, num_atoms, max_atoms))
+        return {};
+
+    DNFQuery::OrGroup or_group;
+    traverseDNF(dnf, or_group);
+
+    DNFQuery result{std::move(or_group)};
+
+    return result;
+}
+
+DNFQuery TreeDNFConverter::toDNF(
+    const ASTPtr & query, size_t max_growth_multiplier)
+{
+    auto dnf = tryConvertToDNF(query, max_growth_multiplier);
+    if (!dnf)
+        throw Exception(ErrorCodes::TOO_MANY_TEMPORARY_COLUMNS,
+            "Cannot convert expression '{}' to CNF, because it produces to many clauses."
+            "Size of boolean formula in CNF can be exponential of size of source formula.");
+
+    return *dnf;
+}
+
+ASTPtr TreeDNFConverter::fromDNF(const DNFQuery & dnf)
+{
+    const auto & groups = dnf.getStatements();
+    if (groups.empty())
+        return nullptr;
+
+    ASTs and_groups;
+    for (const auto & group : groups)
+    {
+        if (group.size() == 1)
+        {
+            if ((*group.begin()).negative)
+                and_groups.push_back(makeASTFunction("not", (*group.begin()).ast->clone()));
+            else
+                and_groups.push_back((*group.begin()).ast->clone());
+        }
+        else if (group.size() > 1)
+        {
+            and_groups.push_back(makeASTFunction("and"));
+            auto * func = and_groups.back()->as<ASTFunction>();
+            for (const auto & atom : group)
+            {
+                if (atom.negative)
+                    func->arguments->children.push_back(makeASTFunction("not", atom.ast->clone()));
+                else
+                    func->arguments->children.push_back(atom.ast->clone());
+            }
+        }
+    }
+
+    if (and_groups.size() == 1)
+        return and_groups.front();
+
+    ASTPtr res = makeASTFunction("or");
+    auto * func = res->as<ASTFunction>();
+    for (const auto & group : and_groups)
+        func->arguments->children.push_back(group);
+
+    return res;
+}
+
+DNFQuery & DNFQuery::pushNotInFunctions()
+{
+    transformAtoms([](const AtomicFormula & atom) -> AtomicFormula
+                   {
+                       AtomicFormula result{atom.negative, atom.ast->clone()};
+                       pushNotIn(result);
+                       return result;
+                   });
+    return *this;
 }
 
 }

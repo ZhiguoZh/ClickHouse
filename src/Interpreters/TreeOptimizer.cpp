@@ -6,7 +6,7 @@
 #include <Interpreters/OptimizeIfWithConstantConditionVisitor.h>
 #include <Interpreters/WhereConstraintsOptimizer.h>
 #include <Interpreters/SubstituteColumnOptimizer.h>
-#include <Interpreters/TreeCNFConverter.h>
+#include <Interpreters/TreeNFConverter.h>
 #include <Interpreters/ArithmeticOperationsInAgrFuncOptimize.h>
 #include <Interpreters/DuplicateOrderByVisitor.h>
 #include <Interpreters/GroupByFunctionKeysVisitor.h>

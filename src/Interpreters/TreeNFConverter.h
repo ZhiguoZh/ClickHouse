@@ -164,6 +164,76 @@ public:
 
 void pushNotIn(CNFQuery::AtomicFormula & atom);
 
+class DNFQuery
+{
+public:
+    using AtomicFormula = CNFQuery::AtomicFormula;
+
+    using AndGroup = std::set<AtomicFormula>;
+    using OrGroup = std::set<AndGroup>;
+
+    DNFQuery(OrGroup && statements_) : statements(std::move(statements_)) { } /// NOLINT
+                                                                              ///
+    const OrGroup & getStatements() const { return statements; }
+
+    DNFQuery & pushNotInFunctions();
+
+    template <typename F>
+    DNFQuery & transformGroups(F func)
+    {
+        OrGroup result;
+        for (const auto & group : statements)
+        {
+            auto new_group = func(group);
+            if (!new_group.empty())
+                result.insert(std::move(new_group));
+        }
+        std::swap(statements, result);
+        return *this;
+    }
+
+    template <typename F>
+    DNFQuery & transformAtoms(F func)
+    {
+        transformGroups([func](const AndGroup & group) -> AndGroup
+                        {
+                            AndGroup result;
+                            for (const auto & atom : group)
+                            {
+                                auto new_atom = func(atom);
+                                if (new_atom.ast)
+                                    result.insert(std::move(new_atom));
+                            }
+                            return result;
+                        });
+        return *this;
+    }
+
+    std::string dump() const;
+private:
+    OrGroup statements;
+};
+
+class TreeDNFConverter
+{
+public:
+    static constexpr size_t DEFAULT_MAX_GROWTH_MULTIPLIER = 20;
+    static constexpr size_t MAX_ATOMS_WITHOUT_CHECK = 200;
+
+    /// @max_growth_multiplier means that it's allowed to grow size of formula only
+    /// in that amount of times. It's needed to avoid exponential explosion of formula.
+    /// CNF of boolean formula with N clauses can have 2^N clauses.
+    /// If amount of atomic formulas will be exceeded nullopt will be returned.
+    /// 0 - means unlimited.
+    static std::optional<DNFQuery> tryConvertToDNF(
+        const ASTPtr & query, size_t max_growth_multiplier = DEFAULT_MAX_GROWTH_MULTIPLIER);
+
+    static DNFQuery toDNF(
+        const ASTPtr & query, size_t max_growth_multiplier = DEFAULT_MAX_GROWTH_MULTIPLIER);
+
+    static ASTPtr fromDNF(const DNFQuery & cnf);
+};
+
 template <typename TAndGroup>
 TAndGroup reduceOnceCNFStatements(const TAndGroup & groups)
 {

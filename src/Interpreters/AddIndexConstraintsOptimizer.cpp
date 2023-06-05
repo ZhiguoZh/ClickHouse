@@ -1,6 +1,6 @@
 #include <Interpreters/AddIndexConstraintsOptimizer.h>
 
-#include <Interpreters/TreeCNFConverter.h>
+#include <Interpreters/TreeNFConverter.h>
 #include <Parsers/IAST_fwd.h>
 #include <Parsers/ASTIdentifier.h>
 #include <Parsers/ASTFunction.h>

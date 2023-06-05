@@ -7,7 +7,7 @@
 #include <Interpreters/SelectQueryOptions.h>
 #include <Interpreters/DatabaseAndTableWithAlias.h>
 #include <Storages/IStorage_fwd.h>
-#include <Interpreters/TreeCNFConverter.h>
+#include <Interpreters/TreeNFConverter.h>
 
 
 namespace DB

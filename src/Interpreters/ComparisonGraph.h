@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Parsers/IAST_fwd.h>
-#include <Interpreters/TreeCNFConverter.h>
+#include <Interpreters/TreeNFConverter.h>
 
 #include <Analyzer/Passes/CNF.h>
 #include <Analyzer/HashUtils.h>

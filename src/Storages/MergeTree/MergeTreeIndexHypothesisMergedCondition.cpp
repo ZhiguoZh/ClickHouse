@@ -1,7 +1,7 @@
 #include <Storages/MergeTree/MergeTreeIndexHypothesisMergedCondition.h>
 
 #include <Storages/MergeTree/MergeTreeIndexHypothesis.h>
-#include <Interpreters/TreeCNFConverter.h>
+#include <Interpreters/TreeNFConverter.h>
 #include <Interpreters/ComparisonGraph.h>
 #include <Parsers/IAST_fwd.h>
 #include <Parsers/IAST.h>

@@ -2,7 +2,7 @@
 
 #include <Parsers/ASTConstraintDeclaration.h>
 #include <Interpreters/ExpressionActions.h>
-#include <Interpreters/TreeCNFConverter.h>
+#include <Interpreters/TreeNFConverter.h>
 #include <Interpreters/ComparisonGraph.h>
 
 #include <Analyzer/Passes/CNF.h>
