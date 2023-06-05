@@ -84,6 +84,52 @@ ASTPtr generateOptimizedDateFilterAST(const String & comparator, const String & 
     }
 }
 
+using ConverterNames = std::unordered_set<String>;
+
+/// Analyze predicate in the form of "converter(column) cmp compare_to", where converter is a convert function in the set of converters_to_find,
+/// column is the argument of converter, cmp is a comparison operation, which could be =, <>, <, >, <=, >=, and compare_to, a UInt64 integer,
+/// is compared with the result from the converter. The order of the operands is allowed to be swapped.
+bool analyzePredicate(const ASTFunction & predicate, const ConverterNames & converters_to_find, String & converter, String & column, UInt64 & compare_to, bool & converter_on_left)
+{
+    if (!predicate.arguments || predicate.arguments->children.size() != 2) return false;
+
+    size_t func_id = predicate.arguments->children.size();
+
+    for (size_t i = 0; i < predicate.arguments->children.size(); i++)
+    {
+        if (const auto * func = predicate.arguments->children[i]->as<ASTFunction>(); func)
+        {
+            if (converters_to_find.contains(func->name))
+            {
+                converter = func->name;
+                func_id = i;
+            }
+        }
+    }
+
+    if (func_id == predicate.arguments->children.size()) return false;
+
+    size_t literal_id = 1 - func_id;
+    const auto * literal = predicate.arguments->children[literal_id]->as<ASTLiteral>();
+
+    if (!literal || literal->value.getType() != Field::Types::UInt64) return false;
+
+    compare_to = literal->value.get<UInt64>();
+    converter_on_left = func_id < literal_id;
+
+    const auto * func = predicate.arguments->children[func_id]->as<ASTFunction>();
+
+    if (!func->arguments || func->arguments->children.size() != 1) return false;
+
+    const auto * column_id = func->arguments->children.at(0)->as<ASTIdentifier>();
+
+    if (!column_id) return false;
+
+    column = column_id->name();
+
+    return true;
+}
+
 bool rewritePredicateInPlace(ASTFunction & function, ASTPtr & ast)
 {
     const static std::unordered_map<String, String> swap_relations = {
@@ -97,39 +143,16 @@ bool rewritePredicateInPlace(ASTFunction & function, ASTPtr & ast)
 
     if (!swap_relations.contains(function.name)) return false;
 
-    if (!function.arguments || function.arguments->children.size() != 2) return false;
+    String column;
+    String converter;
+    UInt64 compare_to = 0;
+    bool converter_on_left = false;
 
-    size_t func_id = function.arguments->children.size();
+    if (!analyzePredicate(function, {"toYear", "toYYYYMM"} /*converters_to_find*/, converter, column, compare_to, converter_on_left)) return false;
 
-    for (size_t i = 0; i < function.arguments->children.size(); i++)
-    {
-        if (const auto * func = function.arguments->children[i]->as<ASTFunction>(); func)
-        {
-            if (func->name == "toYear" || func->name == "toYYYYMM")
-            {
-                func_id = i;
-            }
-        }
-    }
+    String comparator = converter_on_left ? function.name : swap_relations.at(function.name);
 
-    if (func_id == function.arguments->children.size()) return false;
-
-    size_t literal_id = 1 - func_id;
-    const auto * literal = function.arguments->children[literal_id]->as<ASTLiteral>();
-
-    if (!literal || literal->value.getType() != Field::Types::UInt64) return false;
-
-    UInt64 compare_to = literal->value.get<UInt64>();
-    String comparator = literal_id > func_id ? function.name : swap_relations.at(function.name);
-
-    const auto * func = function.arguments->children[func_id]->as<ASTFunction>();
-    const auto * column_id = func->arguments->children.at(0)->as<ASTIdentifier>();
-
-    if (!column_id) return false;
-
-    String column = column_id->name();
-
-    const auto new_ast = generateOptimizedDateFilterAST(comparator, func->name, column, compare_to);
+    const auto new_ast = generateOptimizedDateFilterAST(comparator, converter, column, compare_to);
 
     if (!new_ast) return false;
 
