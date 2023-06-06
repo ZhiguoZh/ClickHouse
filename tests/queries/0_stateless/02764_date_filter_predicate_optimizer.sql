@@ -1,5 +1,5 @@
 DROP TABLE IF EXISTS t;
-CREATE TABLE t (id UInt32, value1 String, date1 Date) ENGINE ReplacingMergeTree() ORDER BY id;
+CREATE TABLE t (id UInt32, value1 String, date1 Date, date2 Date) ENGINE ReplacingMergeTree() ORDER BY id;
 
 EXPLAIN SYNTAX SELECT value1 FROM t WHERE toYear(date1) = 1993 AND id BETWEEN 1 AND 3;
 EXPLAIN SYNTAX SELECT value1 FROM t WHERE toYear(date1) <> 1993 AND id BETWEEN 1 AND 3;
@@ -37,4 +37,13 @@ EXPLAIN SYNTAX SELECT value1 FROM t WHERE toYYYYMM(date1) <= 199203 AND id BETWE
 EXPLAIN SYNTAX SELECT value1 FROM t WHERE toYYYYMM(date1) >= 199203 AND id BETWEEN 1 AND 3;
 EXPLAIN SYNTAX SELECT value1 FROM t WHERE (toYYYYMM(date1) >= 199203 OR toYear(date1) = 1993) AND id BETWEEN 1 AND 3;
 
+EXPLAIN SYNTAX SELECT value1 FROM t WHERE toYear(date1) = 1994 AND toISOWeek(date1) = 6 AND id BETWEEN 1 AND 3;
+
+SET convert_query_to_dnf=true;
+EXPLAIN SYNTAX SELECT value1 FROM t WHERE toYear(date1) = 1994 AND toISOWeek(date1) = 6 AND id BETWEEN 1 AND 3;
+EXPLAIN SYNTAX SELECT value1 FROM t WHERE toYear(date1) = 1994 OR toISOWeek(date1) = 6;
+EXPLAIN SYNTAX SELECT value1 FROM t WHERE (toYear(date1) = 1993 OR toYear(date1) = 1994) AND toISOWeek(date1) = 6 AND id BETWEEN 1 AND 3;
+EXPLAIN SYNTAX SELECT value1 FROM t WHERE toYear(date1) = 1994 AND (toISOWeek(date1) = 6 OR toISOWeek(date1) = 8) AND id BETWEEN 1 AND 3;
+EXPLAIN SYNTAX SELECT value1 FROM t WHERE (toYear(date1) = 1993 OR toYear(date1) = 1994) AND (toISOWeek(date1) = 6 OR toISOWeek(date1) = 8) AND id BETWEEN 1 AND 3;
+EXPLAIN SYNTAX SELECT value1 FROM t WHERE toYear(date1) = 1994 AND toISOWeek(date2) = 6 AND id BETWEEN 1 AND 3;
 DROP TABLE t;

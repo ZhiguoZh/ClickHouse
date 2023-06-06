@@ -612,6 +612,23 @@ bool convertQueryToCNF(ASTSelectQuery * select_query)
     return false;
 }
 
+/// Transform WHERE to DNF for more convenient optimization.
+bool convertQueryToDNF(ASTSelectQuery * select_query)
+{
+    if (select_query->where())
+    {
+        auto dnf_form = TreeDNFConverter::tryConvertToDNF(select_query->where());
+        if (!dnf_form)
+            return false;
+
+        dnf_form->pushNotInFunctions();
+        select_query->refWhere() = TreeDNFConverter::fromDNF(*dnf_form);
+        return true;
+    }
+
+    return false;
+}
+
 /// Remove duplicated columns from USING(...).
 void optimizeUsing(const ASTSelectQuery * select_query)
 {
@@ -678,13 +695,35 @@ void optimizeInjectiveFunctionsInsideUniq(ASTPtr & query, ContextPtr context)
     RemoveInjectiveFunctionsVisitor(data).visit(query);
 }
 
-void optimizeDateFilters(ASTSelectQuery * select_query)
+void optimizeDateFilters(ASTSelectQuery * select_query, bool convert_query_to_dnf)
 {
     /// Predicates in HAVING clause has been moved to WHERE clause.
     if (select_query->where())
     {
-        OptimizeDateFilterInPlaceVisitor::Data data;
-        OptimizeDateFilterInPlaceVisitor(data).visit(select_query->refWhere());
+        bool converted_to_dnf = false;
+        if (convert_query_to_dnf)
+        {
+            auto select_query_where = select_query->where();
+
+            ScanMergeablesInDateFilterVisitor::Data mergeable_converters;
+            ScanMergeablesInDateFilterVisitor(mergeable_converters).visit(select_query_where);
+
+            if (mergeable_converters.has_toYear && mergeable_converters.has_toISOWeek)
+            {
+                converted_to_dnf = convertQueryToDNF(select_query);
+            }
+        }
+
+        if (converted_to_dnf)
+        {
+            OptimizeDateFilterInDNFVisitor::Data data;
+            OptimizeDateFilterInDNFVisitor(data).visit(select_query->refWhere());
+        }
+        else
+        {
+            OptimizeDateFilterInPlaceVisitor::Data data;
+            OptimizeDateFilterInPlaceVisitor(data).visit(select_query->refWhere());
+        }
     }
     if (select_query->prewhere())
     {
@@ -797,7 +836,7 @@ void TreeOptimizer::apply(ASTPtr & query, TreeRewriterResult & result,
     }
 
     /// Rewrite date filters to avoid the calls of converters such as toYear, toYYYYMM, toISOWeek, etc.
-    optimizeDateFilters(select_query);
+    optimizeDateFilters(select_query, settings.convert_query_to_dnf);
 
     /// GROUP BY injective function elimination.
     optimizeGroupBy(select_query, context);

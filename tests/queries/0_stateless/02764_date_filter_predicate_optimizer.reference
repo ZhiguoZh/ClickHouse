@@ -106,3 +106,24 @@ WHERE (date1 >= \'1992-03-01\') AND ((id >= 1) AND (id <= 3))
 SELECT value1
 FROM t
 WHERE ((date1 >= \'1992-03-01\') OR ((date1 >= \'1993-01-01\') AND (date1 <= \'1993-12-31\'))) AND ((id >= 1) AND (id <= 3))
+SELECT value1
+FROM t
+WHERE ((date1 >= \'1994-01-01\') AND (date1 <= \'1994-12-31\')) AND (toISOWeek(date1) = 6) AND ((id >= 1) AND (id <= 3))
+SELECT value1
+FROM t
+WHERE ((date1 >= \'1994-02-07\') AND (date1 <= \'1994-02-13\')) AND (id >= 1) AND (id <= 3)
+SELECT value1
+FROM t
+WHERE ((date1 >= \'1994-01-01\') AND (date1 <= \'1994-12-31\')) OR (toISOWeek(date1) = 6)
+SELECT value1
+FROM t
+WHERE (((date1 >= \'1994-02-07\') AND (date1 <= \'1994-02-13\')) AND (id >= 1) AND (id <= 3)) OR (((date1 >= \'1993-02-08\') AND (date1 <= \'1993-02-14\')) AND (id >= 1) AND (id <= 3))
+SELECT value1
+FROM t
+WHERE (((date1 >= \'1994-02-07\') AND (date1 <= \'1994-02-13\')) AND (id >= 1) AND (id <= 3)) OR ((id >= 1) AND (id <= 3) AND ((date1 >= \'1994-02-21\') AND (date1 <= \'1994-02-27\')))
+SELECT value1
+FROM t
+WHERE (((date1 >= \'1994-02-07\') AND (date1 <= \'1994-02-13\')) AND (id >= 1) AND (id <= 3)) OR ((id >= 1) AND (id <= 3) AND ((date1 >= \'1994-02-21\') AND (date1 <= \'1994-02-27\'))) OR (((date1 >= \'1993-02-08\') AND (date1 <= \'1993-02-14\')) AND (id >= 1) AND (id <= 3)) OR ((id >= 1) AND (id <= 3) AND ((date1 >= \'1993-02-22\') AND (date1 <= \'1993-02-28\')))
+SELECT value1
+FROM t
+WHERE (id >= 1) AND (id <= 3) AND (toISOWeek(date2) = 6) AND ((date1 >= \'1994-01-01\') AND (date1 <= \'1994-12-31\'))
