@@ -1,3 +1,4 @@
+SET allow_experimental_analyzer = 1;
 CREATE TABLE source
 (
     `ts` DateTime('UTC'),
