@@ -42,6 +42,6 @@ void measureAndFilters(size_t size)
 
 int main()
 {
-    size_t size = 10000000;
+    size_t size = 100000000;
     measureAndFilters(size);
 }
