@@ -20,6 +20,10 @@
 #include <Analyzer/Utils.h>
 #include <Analyzer/ConstantNode.h>
 #include <Analyzer/IdentifierNode.h>
+#include <Analyzer/SetUtils.h>
+
+#include <Interpreters/Context.h>
+#include <Interpreters/Set.h>
 
 namespace DB
 {
@@ -35,6 +39,12 @@ FunctionNode::FunctionNode(String function_name_)
 {
     children[parameters_child_index] = std::make_shared<ListNode>();
     children[arguments_child_index] = std::make_shared<ListNode>();
+}
+
+FunctionNode::FunctionNode(String function_name_, const ContextPtr & context_)
+    : FunctionNode(function_name_)
+{
+    context = std::move(context_);
 }
 
 const DataTypes & FunctionNode::getArgumentTypes() const
@@ -64,11 +74,28 @@ ColumnsWithTypeAndName FunctionNode::getArgumentColumns() const
         if (isNameOfInFunction(function_name) && i == 1)
         {
             argument_column.type = std::make_shared<DataTypeSet>();
-            if (constant)
+            if (constant && context)
             {
-                /// Created but not filled for the analysis during function resolution.
-                FutureSetPtr empty_set;
-                argument_column.column = ColumnConst::create(ColumnSet::create(1, empty_set), 1);
+                const auto & lhs_type = arguments[0]->getResultType();
+                const auto & settings = context->getSettingsRef();
+
+                auto result_block = getSetElementsForConstantValue(lhs_type,
+                    constant->getValue(),
+                    constant->getResultType(),
+                    settings.transform_null_in);
+
+                SizeLimits size_limits_for_set = {settings.max_rows_in_set, settings.max_bytes_in_set, settings.set_overflow_mode};
+
+                auto set = std::make_shared<Set>(size_limits_for_set, 0, settings.transform_null_in);
+
+                set->setHeader(result_block.cloneEmpty().getColumnsWithTypeAndName());
+                set->insertFromBlock(result_block.getColumnsWithTypeAndName());
+                set->finishInsert();
+
+                /// Create constant set column for constant folding
+
+                auto future_set = std::make_shared<FutureSetFromStorage>(std::move(set));
+                argument_column.column = ColumnConst::create(ColumnSet::create(1, future_set), 1);
             }
         }
         else

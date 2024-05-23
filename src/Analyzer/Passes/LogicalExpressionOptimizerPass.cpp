@@ -542,7 +542,7 @@ private:
 
             auto rhs_node = std::make_shared<ConstantNode>(std::move(args));
 
-            auto in_function = std::make_shared<FunctionNode>("in");
+            auto in_function = std::make_shared<FunctionNode>("in", getContext());
 
             QueryTreeNodes in_arguments;
             in_arguments.reserve(2);

@@ -11,6 +11,7 @@
 #include <Functions/IFunction.h>
 #include <Parsers/NullsAction.h>
 #include <Common/typeid_cast.h>
+#include <Interpreters/Context_fwd.h>
 
 namespace DB
 {
@@ -60,6 +61,9 @@ public:
       * Later during query analysis pass function must be resolved.
       */
     explicit FunctionNode(String function_name_);
+
+    /// Construct function node with function name, context
+    explicit FunctionNode(String function_name_, const ContextPtr & context);
 
     /// Get function name
     const String & getFunctionName() const { return function_name; }
@@ -225,6 +229,7 @@ private:
     NullsAction nulls_action = NullsAction::EMPTY;
     IResolvedFunctionPtr function;
     bool wrap_with_nullable = false;
+    ContextPtr context;
 
     static constexpr size_t parameters_child_index = 0;
     static constexpr size_t arguments_child_index = 1;
