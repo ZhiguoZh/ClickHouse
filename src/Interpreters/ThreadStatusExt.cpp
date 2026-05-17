@@ -77,7 +77,7 @@ void ThreadStatus::attachQueryContext(ContextPtr query_context_)
 
     if (thread_group)
     {
-        std::lock_guard lock(thread_group->mutex);
+        std::unique_lock lock(thread_group->mutex);
 
         thread_group->query_context = query_context;
         if (thread_group->global_context.expired())
@@ -105,7 +105,7 @@ void ThreadStatus::setupState(const ThreadGroupStatusPtr & thread_group_)
     memory_tracker.setParent(&thread_group->memory_tracker);
 
     {
-        std::lock_guard lock(thread_group->mutex);
+        std::unique_lock lock(thread_group->mutex);
 
         /// NOTE: thread may be attached multiple times if it is reused from a thread pool.
         thread_group->thread_ids.emplace_back(thread_id);
@@ -335,10 +335,13 @@ void ThreadStatus::detachQuery(bool exit_if_already_detached, bool thread_exits)
     finalizeQueryProfiler();
     finalizePerformanceCounters();
 
-    /// Detach from thread group
+    /// Detach from thread group and clean up finished_threads_counters_memory in a single lock acquisition
     {
-        std::lock_guard guard(thread_group->mutex);
+        std::unique_lock guard(thread_group->mutex);
         thread_group->threads.erase(this);
+        /// Avoid leaking of ThreadGroupStatus::finished_threads_counters_memory
+        /// (this is in case someone uses system thread but did not call getProfileEventsCountersAndMemoryForThreads())
+        thread_group->finished_threads_counters_memory.clear();
     }
     performance_counters.setParent(&ProfileEvents::global_counters);
     memory_tracker.reset();
@@ -347,10 +350,6 @@ void ThreadStatus::detachQuery(bool exit_if_already_detached, bool thread_exits)
 
     query_id.clear();
     query_context.reset();
-
-    /// Avoid leaking of ThreadGroupStatus::finished_threads_counters_memory
-    /// (this is in case someone uses system thread but did not call getProfileEventsCountersAndMemoryForThreads())
-    thread_group->getProfileEventsCountersAndMemoryForThreads();
 
     thread_group.reset();
 
@@ -399,7 +398,7 @@ void ThreadStatus::logToQueryThreadLog(QueryThreadLog & thread_log, const String
     if (thread_group)
     {
         {
-            std::lock_guard lock(thread_group->mutex);
+            std::shared_lock lock(thread_group->mutex);
 
             elem.master_thread_id = thread_group->master_thread_id;
             elem.query = thread_group->query;

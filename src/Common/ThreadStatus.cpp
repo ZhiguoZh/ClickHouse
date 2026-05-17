@@ -73,7 +73,7 @@ static thread_local bool has_alt_stack = false;
 
 std::vector<ThreadGroupStatus::ProfileEventsCountersAndMemory> ThreadGroupStatus::getProfileEventsCountersAndMemoryForThreads()
 {
-    std::lock_guard guard(mutex);
+    std::unique_lock guard(mutex);
 
     /// It is OK to move it, since it is enough to report statistics for the thread at least once.
     auto stats = std::move(finished_threads_counters_memory);
@@ -156,7 +156,7 @@ ThreadStatus::~ThreadStatus()
             thread_id
         };
 
-        std::lock_guard guard(thread_group->mutex);
+        std::unique_lock guard(thread_group->mutex);
         thread_group->finished_threads_counters_memory.emplace_back(std::move(counters));
         thread_group->threads.erase(this);
     }
@@ -210,7 +210,7 @@ void ThreadStatus::attachInternalTextLogsQueue(const InternalTextLogsQueuePtr & 
     if (!thread_group)
         return;
 
-    std::lock_guard lock(thread_group->mutex);
+    std::unique_lock lock(thread_group->mutex);
     thread_group->logs_queue_ptr = logs_queue;
     thread_group->client_logs_level = client_logs_level;
 }
@@ -222,7 +222,7 @@ void ThreadStatus::attachInternalProfileEventsQueue(const InternalProfileEventsQ
     if (!thread_group)
         return;
 
-    std::lock_guard lock(thread_group->mutex);
+    std::unique_lock lock(thread_group->mutex);
     thread_group->profile_queue_ptr = profile_queue;
 }
 
@@ -233,7 +233,7 @@ void ThreadStatus::setFatalErrorCallback(std::function<void()> callback)
     if (!thread_group)
         return;
 
-    std::lock_guard lock(thread_group->mutex);
+    std::unique_lock lock(thread_group->mutex);
     thread_group->fatal_error_callback = fatal_error_callback;
 }
 
