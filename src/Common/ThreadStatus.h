@@ -66,7 +66,7 @@ public:
         UInt64 thread_id;
     };
 
-    mutable std::mutex mutex;
+    mutable std::shared_mutex mutex;
 
     ProfileEvents::Counters performance_counters{VariableContext::Process};
     MemoryTracker memory_tracker{VariableContext::Process};

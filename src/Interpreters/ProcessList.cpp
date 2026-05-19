@@ -1,4 +1,5 @@
 #include <Interpreters/ProcessList.h>
+#include <shared_mutex>
 #include <Core/Settings.h>
 #include <Interpreters/Context.h>
 #include <Interpreters/DatabaseAndTableWithAlias.h>
@@ -205,7 +206,7 @@ ProcessList::EntryPtr ProcessList::insert(const String & query_, const IAST * as
         auto thread_group = CurrentThread::getGroup();
         if (thread_group)
         {
-            std::lock_guard lock_thread_group(thread_group->mutex);
+            std::unique_lock lock_thread_group(thread_group->mutex);
             thread_group->performance_counters.setParent(&user_process_list.user_performance_counters);
             thread_group->memory_tracker.setParent(&user_process_list.user_memory_tracker);
             thread_group->query = query_;
@@ -523,7 +524,7 @@ QueryStatusInfo QueryStatus::getInfo(bool get_thread_list, bool get_profile_even
 
         if (get_thread_list)
         {
-            std::lock_guard lock(thread_group->mutex);
+            std::shared_lock lock(thread_group->mutex);
             res.thread_ids = thread_group->thread_ids;
         }
 
