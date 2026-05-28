@@ -16,6 +16,13 @@
 #include <Functions/FunctionUnaryArithmetic.h>
 #include <Common/FieldVisitors.h>
 
+#include <Common/TargetSpecific.h>
+
+#if USE_MULTITARGET_CODE
+#include <immintrin.h>
+#endif
+
+#include <cstring>
 #include <algorithm>
 
 
@@ -418,6 +425,92 @@ struct TypedExecutorInvoker<Op>
 };
 
 
+/// SIMD-optimized bulk logical operation for UInt8 columns.
+/// Replaces the element-by-element OperationApplier with bulk bitwise operations.
+/// For filter columns (0 or non-zero), this correctly computes AND/OR/XOR.
+
+DECLARE_AVX512BW_SPECIFIC_CODE(
+template <class Op>
+void bulkLogicalOpImpl(const UInt8 * src, UInt8 * dst, size_t size)
+{
+    size_t i = 0;
+    for (; i + 64 <= size; i += 64)
+    {
+        __m512i va = _mm512_loadu_si512(reinterpret_cast<const void *>(dst + i));
+        __m512i vb = _mm512_loadu_si512(reinterpret_cast<const void *>(src + i));
+        __mmask64 ma = _mm512_test_epi8_mask(va, va);  // 1 where a != 0
+        __mmask64 mb = _mm512_test_epi8_mask(vb, vb);  // 1 where b != 0
+        __mmask64 mr;
+        if constexpr (std::is_same_v<Op, AndImpl>)
+            mr = _kand_mask64(ma, mb);
+        else if constexpr (std::is_same_v<Op, OrImpl>)
+            mr = _kor_mask64(ma, mb);
+        else
+            mr = _kxor_mask64(ma, mb);
+        _mm512_storeu_si512(reinterpret_cast<void *>(dst + i), _mm512_maskz_set1_epi8(mr, 1));
+    }
+    /// Scalar tail
+    for (; i < size; ++i)
+    {
+        if constexpr (std::is_same_v<Op, AndImpl>)
+            dst[i] = (dst[i] != 0) & (src[i] != 0);
+        else if constexpr (std::is_same_v<Op, OrImpl>)
+            dst[i] = (dst[i] != 0) | (src[i] != 0);
+        else
+            dst[i] = (dst[i] != 0) ^ (src[i] != 0);
+    }
+}
+) // DECLARE_AVX512BW_SPECIFIC_CODE
+
+DECLARE_DEFAULT_CODE(
+template <class Op>
+void bulkLogicalOpImpl(const UInt8 * src, UInt8 * dst, size_t size)
+{
+    for (size_t i = 0; i < size; ++i)
+    {
+        if constexpr (std::is_same_v<Op, AndImpl>)
+            dst[i] = (dst[i] != 0) & (src[i] != 0);
+        else if constexpr (std::is_same_v<Op, OrImpl>)
+            dst[i] = (dst[i] != 0) | (src[i] != 0);
+        else
+            dst[i] = (dst[i] != 0) ^ (src[i] != 0);
+    }
+}
+) // DECLARE_DEFAULT_CODE
+
+template <class Op>
+void bulkLogicalOp(const UInt8ColumnPtrs & uint8_args, UInt8Container & result_data, bool has_consts)
+{
+    const size_t size = result_data.size();
+    if (uint8_args.empty())
+        return;
+
+    size_t start_idx = 0;
+    if (!has_consts)
+    {
+        /// Initialize result with first column data
+        const auto & first = uint8_args[0]->getData();
+        memcpy(result_data.data(), first.data(), size);
+        start_idx = 1;
+    }
+
+    /// Apply remaining columns using SIMD dispatch
+    for (size_t col = start_idx; col < uint8_args.size(); ++col)
+    {
+        const UInt8 * src = uint8_args[col]->getData().data();
+        UInt8 * dst = result_data.data();
+
+#if USE_MULTITARGET_CODE
+        if (isArchSupported(TargetArch::AVX512BW))
+        {
+            TargetSpecific::AVX512BW::bulkLogicalOpImpl<Op>(src, dst, size);
+            continue;
+        }
+#endif
+        TargetSpecific::Default::bulkLogicalOpImpl<Op>(src, dst, size);
+    }
+}
+
 /// Types of all of the arguments are guaranteed to be non-nullable here
 template <class Op>
 ColumnPtr basicExecuteImpl(ColumnRawPtrs arguments, size_t input_rows_count)
@@ -470,7 +563,7 @@ ColumnPtr basicExecuteImpl(ColumnRawPtrs arguments, size_t input_rows_count)
         }
     }
 
-    OperationApplier<Op, AssociativeApplierImpl>::apply(uint8_args, col_res->getData(), has_consts);
+    bulkLogicalOp<Op>(uint8_args, col_res->getData(), has_consts);
 
     return col_res;
 }
